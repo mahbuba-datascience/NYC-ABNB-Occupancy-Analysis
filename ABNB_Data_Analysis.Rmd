@@ -1,0 +1,633 @@
+---
+title: "ABNB Data Analysis"
+author: "Matthew Grafals, Zhongming Wu, Mahbuba Siddiqua Jyoti"
+date: "2023-12-02"
+output: 
+  html_document: default
+  pdf_document: default
+always_allow_html: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(tidy = TRUE, tidy.opts=list(width.cutoff=80), message = FALSE)
+```
+
+```{r, include=FALSE}
+# Set the CRAN mirror
+options(repos = c(CRAN = "https://cran.rstudio.com/"))
+
+# Install packages
+#install.packages("devtools")
+#install.packages("tidyverse")
+#install.packages("tidymodels")
+#install.packages("DataExplorer")
+#install.packages("SmartEDA")
+#install.packages("ggstatsplot")
+# install.packages("dplyr")
+# install.packages("stringr")
+#install.packages("leaflet")
+#install.packages("webshot")
+#install.packages("fastDummies")
+# install.packages("MASS")
+# install.packages("RColorBrewer")
+#install.packages("gridExtra")
+#install.packages("Matrix")
+#install.packages("mapview")
+#install.packages("caret")
+
+# Load libraries
+library(tidyverse) 
+library(DataExplorer)
+library(SmartEDA)
+library(ggstatsplot)
+library(dplyr)
+library(stringr)
+library(leaflet)
+library(webshot)
+library(knitr)
+library(tidymodels)
+library(fastDummies)
+library(MASS)
+library(RColorBrewer)
+library(gridExtra)
+library(Matrix)
+library(webshot)
+library(htmlwidgets)
+library(mapview)
+library(caret)
+```
+
+# Introduction
+
+- **Main Goal**
+  + ABNB, as a current investment target, is attracting a lot of attention. Many individuals are seeking a stable income independent of their regular jobs through ABNB. What factors are commonly focused on by investors and affect the earnings of ABNB? Common factors include room rate, occupancy rate, location, room type, customer reviews, minimum stay etc., with the room rate often regarded as a primary consideration. 
+  + In this project, we explore a detailed data analysis of Airbnb listings in New York City, leveraging various statistical and visualization techniques. The analysis encompasses data pre-processing, exploratory data analysis (EDA), and the construction of a linear regression model for predicting listing prices. In this narrative, we will delve into the key components of the analysis, elucidating the rationale behind each step and interpreting the findings.
+
+- **Data Dictionary**
+  + <https://docs.google.com/spreadsheets/d/1iWCNJcSutYqpULSQHlNyGInUvHg2BoUGoNRIGa6Szc4/edit#gid=1938308660>
+  
+
+```{r}
+proj.path <- getwd()
+file_path <- file.path("C:/Users/USER_Admin/Downloads/Final Project/Final Project", 'listings.csv')
+```
+
+```{r, include=FALSE}
+# color palette using RColorBrewer
+pal <- colorFactor(
+  palette = "Set1",  # You can choose a different palette
+  domain = data$room_type
+)
+```
+
+```{r, include=FALSE}
+map <- leaflet(data) %>%
+  addTiles() %>%
+  setView(lng = -74.00, lat = 40.71, zoom = 11) %>%
+  addProviderTiles("CartoDB.Positron") %>%
+  addCircleMarkers(
+    lng = ~longitude,
+    lat = ~latitude,
+    group = ~room_type,  # Group by room_type
+    color = ~pal(room_type),  # Color code by room_type using the palette
+    radius = 1,  # Adjust the radius of the markers as needed
+    popup = ~as.character(room_type)  # Popup displaying room_type
+  ) %>%
+  addLegend(
+    position = "bottomright",  # Adjust the legend position as needed
+    pal = pal,  # Use the same palette for the legend
+    values = ~room_type,  # Display room_type in the legend
+    title = "Room Type"
+  )
+map 
+```
+
+```{r, include=FALSE}
+mapshot(map, file = "Rplot.png")
+```
+
+# Step 1: Exploratory Data Analysis (EDA)
+
+## Data Overview
+
+The analysis begins with a comprehensive overview of the dataset, detailing fundamental statistics such as sample size, the number of variables, and the types of variables. This information provides a foundational understanding of the dataset's structure and informs subsequent analytical decisions.
+
+```{r}
+ExpData(data=data,type=1)
+```
+
+```{r}
+ExpData(data=data,type=2)
+```
+
+The dataset consists of 38,792 rows (observations) and 18 columns (variables) which gives an initial understanding of the data's volume and dimensionality. There are 11 numeric/integer variables, indicating quantitative data, 7 text variables, suggesting qualitative or categorical information, and the absence of factor variables implies that there are no explicitly defined categorical factors in the dataset. Approximately 77.78% of the variables have complete cases, meaning there are no missing values for these variables, about 16.67% of the variables have between 0% and 50% missing cases, and no variables with missing cases exceeding 50%, ensuring a relatively small amount of missing data in the dataset.
+
+```{r}
+df <- subset(data, select = c("neighbourhood_group", "room_type", "minimum_nights", "number_of_reviews", "availability_365", "price"))
+```
+
+# Step 2: Geoplot of Data
+
+![Airbnb locations throughout NYC](C:/Users/crazy/OneDrive - The City College of New York/Final Project/Rplot.png)
+
+```{r include = FALSE}
+# Quick EDA for user to understand dataset
+#create_report(df)
+#ExpReport(df, op_file = 'smarteda.html')
+```
+
+## Outlier Handling
+
+A crucial step in the analysis involves addressing outliers in the dataset, specifically in the context of listing prices. Extreme outliers are identified and filtered to enhance the robustness of subsequent analyses.
+
+```{r}
+ggplot(df, aes(x = neighbourhood_group, y = price, fill = neighbourhood_group)) +
+  geom_boxplot() +
+  labs(title = "Distribution of Prices by Neighbourhood Group",
+       x = "Neighbourhood Group",
+       y = "Price") +
+  theme_minimal()
+```
+
+The box plot illustrates the distribution of listing prices across different neighborhood groups. It becomes evident from the plot that extreme outliers are present, making it challenging to discern the detailed distribution due to their impact. To enhance the clarity of the distribution, listings with prices exceeding $500 are identified as potential outliers and targeted for removal.
+
+```{r}
+df_filtered <- df %>% filter(price <= 500)
+ggplot(df_filtered, aes(x = neighbourhood_group, y = price, fill = neighbourhood_group)) +
+  geom_boxplot() +
+  labs(title = "Distribution of Prices by Neighbourhood Group",
+       x = "Neighbourhood Group",
+       y = "Price") +
+  theme_minimal()
+```
+```{r}
+num_rows_filtered <- nrow(df_filtered)
+cat("Filtered Data:", num_rows_filtered, '\n')
+cat("Unfiltered Data:", nrow(df), '\n')
+cat("Remaining Data:", nrow(df_filtered)/nrow(df), '\n')
+```
+
+The code demonstrates the practical step of filtering the dataset to exclude listings with prices exceeding $500. The box plot for the filtered data provides a clearer representation of price distribution within a more reasonable range, it enhances the visibility of patterns and trends while mitigating the impact of extreme outliers. Extreme prices can disproportionately influence statistical analyses, and this filtering step contributes to a more accurate representation of typical pricing. About 94% of the data was retained after filtering the extreme price outliers which will better support modeling relationships between variables without the noise introduced by extreme values. The filtered dataset will be used as the primary dataset.
+
+```{r, include=FALSE}
+df <- df_filtered
+```
+
+## Variable Inspection
+
+The inspection of individual variables is conducted to ascertain their characteristics, such as data type, number of missing values, and the distribution of unique values. Visualization tools like bar plots and box plots are employed to present a clearer picture of categorical and numerical variables, respectively.
+
+```{r}
+# Barplot for 'neighbourhood_group'
+ggplot(df, aes(x = neighbourhood_group, fill = neighbourhood_group)) +
+  geom_bar() +
+  labs(title = "Distribution of Listings by Neighbourhood Group",
+       x = "Neighbourhood Group", y = "Total") +
+  theme_minimal()
+```
+
+The visualization allows for a quick comparison of listing distribution across different neighborhood groups. Manhattan and Brooklyn are highlighted as the primary areas with a high density of Airbnb listings. This aligns with expectations, considering these regions are popular among tourists due to attractions, cultural sites, and vibrant neighborhoods.
+
+```{r}
+# Barplot for 'room_type'
+ggplot(df, aes(x = room_type, fill = room_type)) +
+  geom_bar() +
+  labs(title = "Distribution of Listings by Room Type",
+       x = "Room Type",
+       y = "Total") +
+  theme_minimal()
+```
+
+The bar plot illustrates the count of Airbnb listings categorized by different room types. A significant majority of listings fall into the categories of "Entire home/apt" or "Private room", revealing a clear preference among users for private accommodations. The data suggests that the architectural landscape of New York City may influence the distribution of room types as instances of "Shared room" listings are comparatively lower, indicating that shared accommodations might be less common or favored due to spatial constraints. The low number of available hotel room listings suggests that hotel room listings, which may incur additional fees on platforms like Airbnb, might be strategically managed through the companies' private booking websites.
+
+```{r}
+# Boxplot for 'room_type' versus 'price'
+ggplot(df, aes(x = room_type, y = price, fill = room_type)) +
+  geom_boxplot() +
+  labs(title = "Distribution of Prices by Room Type",
+       x = "Room Type",
+       y = "Price") +
+  theme_minimal()
+```
+
+The box plot illustrates the distribution of listing prices across different room types, including entire home/apartment, private rooms, and shared rooms. Shared rooms and private rooms tend to have lower prices, while entire home/apartment listings show a broader range higher of prices. Hotel prices show the highest range of prices, as hotels might increase prices to offset the impact of fees associated with platforms like Airbnb.
+
+Since Hotel room and Shared room take up very little proportion, and the mean price is significantly different from other two main room types, we will exclude them from our dataset. 
+
+```{r}
+# exclude Hotel room and Shared room
+df <- df[df$room_type %in% c('Entire home/apt', 'Private room'), ]
+
+```
+
+
+```{r, echo = FALSE}
+# Barplot for 'neighbourhood_group'
+barplot_neighbourhood <- ggplot(df, aes(x = neighbourhood_group, fill = neighbourhood_group)) +
+  geom_bar() +
+  labs(title = "Listings by Neighbourhood Group",
+       x = "Neighbourhood Group",
+       y = "Total") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Barplot for 'room_type'
+barplot_room_type <- ggplot(df, aes(x = room_type, fill = room_type)) +
+  geom_bar() +
+  labs(title = "Listings by Room Type",
+       x = "Room Type",
+       y = "Total") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Boxplot for 'neighbourhood_group'
+boxplot_neighbourhood <- ggplot(df, aes(x = neighbourhood_group, y = price, fill = neighbourhood_group)) +
+  geom_boxplot() +
+  labs(title = "Prices by Neighbourhood Group",
+       x = "Neighbourhood Group",
+       y = "Price") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Boxplot for 'room_type'
+boxplot_room_type <- ggplot(df, aes(x = room_type, y = price, fill = room_type)) +
+  geom_boxplot() +
+  labs(title = "Prices by Room Type",
+       x = "Room Type",
+       y = "Price") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Define the themes with increased margin for plot titles
+title_theme <- theme(
+  plot.title = element_text(margin = margin(b = 40))  # You can adjust the margin value as needed
+)
+
+# Apply the themes to your plots
+barplot_neighbourhood <- barplot_neighbourhood + title_theme
+barplot_room_type <- barplot_room_type + title_theme
+boxplot_neighbourhood <- boxplot_neighbourhood + title_theme
+boxplot_room_type <- boxplot_room_type + title_theme
+
+grid.arrange(barplot_neighbourhood, barplot_room_type,
+             boxplot_neighbourhood, boxplot_room_type,
+             ncol = 2)
+```
+
+# Step 3: Hypothesis Test
+
+While boxplots can provide visual insights into the distribution of data and highlight differences in means between groups, statistical tests like ANOVA (Analysis of Variance) serve a specific purpose in hypothesis testing. 
+
+**Hypothesis 1**: Except for Manhattan and Brooklyn, the mean price for other 3 boroughs are at the same level.
+
+Solution: when there are more than two groups to compare, AVOVA can assess whether there are any statistically significant differences in means among multiple groups. In this case, we select Bronx, Queens and State Island, then perform AVOVA test to see any significant different of their mean prices. 
+
+*H0*: no significant difference among the mean prices of selected boroughs
+*Ha*: at least one selected borough is different in mean price
+
+```{r}
+# Fit an ANOVA model for occupancy rate over boroughs
+df_aov <- df[df$neighbourhood_group %in% c('Bronx', 'Queens', 'Staten Island'), ]
+lm_aov <- aov(price ~ neighbourhood_group, data = df_aov)
+summary(lm_aov)
+```
+
+The p-value is 0.206, which is greater than 0.05. Therefore, it would likely fail to reject the null hypothesis, suggesting that there is no significant difference in the means of the groups represented by the variable "neighbourhood_group". **Therefore, we can combine the 3 boroughs for afterward analysis, to reduce categories and model complexity**
+
+```{r}
+# group Bronx, Queens and Staten Island as BQSI
+df$neighbourhood_group[df$neighbourhood_group %in% c("Bronx", "Queens", "Staten Island")] <- "BQSI"
+```
+
+
+**Hypothesis 2**: the mean price for Entire home/apt and Private room are significant different
+
+Solution: use t-test to check any significant difference in the mean prices between the two room types. t-test is used to compare the means of two groups when the assumption of equal variances is violated. In this case, null hypothesis (H0) is no significant difference in mean price between the two room types, and the alternative hypothesis (Ha) is that there is a significant difference.
+
+*H0: no significant difference in mean price of the two room types*
+*Ha: there is significant difference in mean price of the two room types*
+
+```{r}
+entire_home <- df$price[df$room_type == "Entire home/apt"]
+private_room <- df$price[df$room_type == "Private room"]
+t_test <- t.test(entire_home, private_room)
+print(t_test)
+```
+
+The p-value is less than 2.2e-16 (a very small number, essentially zero). The very small p-value (less than 0.05) suggests that we would reject the null hypothesis. In a word, there is a statistically significant difference in means between the "entire_home" and "private_room"
+
+
+# Step 4: Coorelation Analysis
+
+```{r}
+# Scatterplot of price vs num_of_reviews
+scat_p1 <- ggplot(df, aes(x = number_of_reviews, y = price)) +
+  geom_point() +
+  labs(title = "Scatterplot of Price vs Number of Reviews",
+       x = "Number of Reviews",
+       y = "Price") +
+  theme_minimal()
+
+# Scatterplot of price vs num_of_reviews with color for neighbourhood_group
+scat_p2 <- ggplot(df, aes(x = number_of_reviews, y = price, color = neighbourhood_group)) +
+  geom_point() +
+  labs(title = "Scatterplot of Price vs Number of Reviews by Neighbourhood Group",
+       x = "Number of Reviews",
+       y = "Price") +
+  theme_minimal()
+
+grid.arrange(scat_p1, scat_p2,
+             ncol = 1)
+```
+
+```{r}
+# Scatterplot of price vs availability_365
+ggplot(df, aes(x = availability_365, y = price, color = neighbourhood_group)) +
+  geom_point() +
+  labs(title = "Scatterplot of Price vs Availability 365",
+       x = "Availability 365",
+       y = "Price") +
+  theme_minimal()
+```
+
+```{r}
+# Heat scatterplot colored by neighbourhood_group
+ggplot(df, aes(x = availability_365, y = price)) +
+  geom_bin2d(aes(fill = neighbourhood_group), bins = 100) +
+  labs(title = "Heat Scatterplot of Price vs Availability 365",
+       x = "Availability 365",
+       y = "Price") +
+  theme_minimal()
+```
+
+After creating scatter plots to explore potential relationships between key variables, such as price and the number of reviews or availability throughout the year, it is evident that there is no clear linear correlation between these variables. The scatter plot of price against the number of reviews and availability throughout the year does not reveal a distinct pattern, indicating that other factors may contribute to the pricing and booking patterns of Airbnb listings.
+
+The absence of a clear correlation suggests that factors beyond the simple numerical relationship between reviews, availability, and price are influencing the dynamics of the dataset. Further analysis and consideration of additional variables may be necessary to uncover hidden patterns or relationships that contribute to the pricing strategies and booking behaviors observed in the data.
+
+
+## Correlation Matrix
+
+Correlation matrices are utilized to examine the relationships between key variables, such as the number of reviews, availability, and listing prices. The correlation coefficients guide insights into potential dependencies and contribute to understanding the dataset's dynamics.
+
+```{r}
+corr_df <- subset(df, select = c("minimum_nights", "number_of_reviews", "availability_365", "price"))
+
+corr_mat <- cor(corr_df, method = c("pearson"))
+print(corr_mat)
+```
+
+After conducting a correlation analysis on key variables—minimum nights, number of reviews, availability throughout the year, and listing prices—it is observed that the correlation coefficients indicate weak relationships among these variables. Specifically, the correlation between the number of reviews and the listing price is approximately 0.025, and the correlation between availability throughout the year and the listing price is around 0.166.
+
+The weak correlations suggest that the analyzed variables, as they stand, may not provide sufficient information to predict listing prices accurately. It implies that other factors not included in this subset of variables might play a more influential role in determining the pricing dynamics of Airbnb listings. Despite the weak correlations, we will proceed to build a linear model to explore potential relationships and patterns in the available data, acknowledging the need for additional variables to enhance the model's predictive power.
+
+
+# Step 5: Multiple Regression Model
+
+## Stepwise Variable Selection
+
+The linear regression modeling process involves the application of stepwise variable selection, encompassing both, forward, and backward selection methods. Two approaches are explored: one with hot-one encoding for categorical variables and another without. The AIC (Akaike Information Criterion) is employed to identify the most parsimonious model that effectively captures the variance in listing prices.
+
+### Method 1: Hot-One Encoding Applied
+
+```{r}
+dmy <- dummyVars(" ~ .", data = df, fullRank = F)
+dat_transformed <- data.frame(predict(dmy, newdata = df))
+
+# Shorten the column names
+colnames(dat_transformed) <- gsub("neighbourhood_group", "NG_", colnames(dat_transformed))
+colnames(dat_transformed) <- gsub("room_type", "RT_", colnames(dat_transformed))
+```
+
+
+```{r}
+full_model <- lm(price ~ 0 +., data = dat_transformed)
+min_model <- lm(price ~ 0, data = dat_transformed)
+scope_params = list( lower = min_model, upper = full_model)
+```
+
+```{r}
+stepAIC(min_model, scope = scope_params, scale = 0,
+        direction = c("forward"),
+        trace = 0, keep = NULL, steps = 1000, use.start = FALSE,
+        k = 2)$anova
+stepAIC(full_model, scope = scope_params, scale = 0,
+        direction = c("backward"),
+        trace = 0, keep = NULL, steps = 1000, use.start = FALSE,
+        k = 2)$anova
+stepAIC(full_model, scope = scope_params, scale = 0,
+        direction = c("both"),
+        trace = 0, keep = NULL, steps = 1000, use.start = FALSE,
+        k = 2)$anova
+```
+
+In this method, hot-one encoding was applied to categorical variables ('neighbourhood_group' and 'room_type'). The stepwise model path analysis revealed that the final model includes variables such as room type ('RT_Private room' and 'RT_Shared room'), neighbourhood group ('NG_Manhattan' and 'NG_Brooklyn'), availability throughout the year, minimum nights, and number of reviews. The AIC for the final model was 317443.1
+
+### Method 2: Without Hot-One Encoding
+
+```{r}
+test_df2 <- df
+
+# Fit a linear model using all variables
+full_model2 <- lm(price ~ 0 + ., data = test_df2)
+min_model2 <- lm(price ~ 0 + 1, data = test_df2)
+scope_params2 = list( lower = min_model2, upper = full_model2)
+```
+
+```{r}
+stepAIC(min_model2, scope = scope_params2, scale = 0,
+        direction = c("forward"),
+        trace = 0, keep = NULL, steps = 1000, use.start = FALSE,
+        k = 2)$anova
+stepAIC(full_model2, scope = scope_params2, scale = 0,
+        direction = c("backward"),
+        trace = 0, keep = NULL, steps = 1000, use.start = FALSE,
+        k = 2)$anova
+stepAIC(full_model2, scope = scope_params2, scale = 0,
+        direction = c("both"),
+        trace = 0, keep = NULL, steps = 1000, use.start = FALSE,
+        k = 2)$anova
+```
+
+In the second method, categorical variables were not hot-one encoded. The stepwise model path analysis for this method led to the selection of the same variables—room type, neighbourhood group, availability throughout the year, minimum nights, and number of reviews. The AIC for the final model was also 317443.1.
+
+### Conclusion
+
+The consistent AIC values between the hot-one encoded and non-encoded models suggest that both methods result in similar model effectiveness. The best-performing model includes all the variables, providing the lowest AIC of 317443.1
+
+These findings suggest that the selected variables collectively contribute to explaining the variance in listing prices. The consistency across encoding methods reinforces the robustness of the chosen variables in predicting listing prices. We will proceed with further analysis using this comprehensive linear regression model.
+
+## Training & Testing Linear Regression Model
+
+The selected linear regression model is trained and evaluated on both training and testing datasets. Metrics such as Root Mean Squared Error (RMSE) and R-squared are employed to gauge the model's predictive performance. Visualizations of residuals and predicted versus actual values aid in understanding the model's behavior and identifying potential areas for improvement.
+
+```{r}
+# Set the seed for reproducibility
+set.seed(42)
+
+# Split the data into training and testing sets
+split_index <- initial_split(df, prop = 0.8, strata = price)
+train_data <- training(split_index)
+test_data <- testing(split_index)
+
+# Train a linear regression model
+lm_model <- lm(price ~ 0 + ., data = train_data)
+```
+
+```{r}
+# Make predictions on the training data
+train_predictions <- predict(lm_model, data = train_data)
+
+# Calculate training residuals
+train_residuals <- train_data$price - train_predictions
+
+# Model performance metrics on training data
+train_rmse <- sqrt(mean(train_residuals^2))
+train_r_squared <- 1 - sum(train_residuals^2) / sum((train_data$price - mean(train_data$price))^2)
+
+# Print or view the metrics
+cat("Training RMSE:", train_rmse, "\n")
+cat("Training R-squared:", train_r_squared, "\n")
+```
+
+The training RMSE provides an average measure of how far off the model's predictions are from the actual prices in the training data. In this case, the model's predictions deviate from the true prices by an average of approximately 83 units. The R-squared value of 0.3250251 indicates that the model explains about 33% of the variability observed in the training dataset.
+
+```{r}
+# Make predictions on the test data
+test_predictions <- predict(lm_model, newdata = test_data)
+
+# Calculate testing residuals
+test_residuals <- test_data$price - test_predictions
+
+# Model performance metrics on testing data
+test_rmse <- sqrt(mean(test_residuals^2))
+test_r_squared <- 1 - sum(test_residuals^2) / sum((test_data$price - mean(test_data$price))^2)
+
+# Print or view the metrics
+cat("Testing RMSE:", test_rmse, "\n")
+cat("Testing R-squared:", test_r_squared, "\n")
+```
+
+Similar to the training metrics, the testing RMSE measures the average prediction error on the testing data, with an average deviation of approximately 85 units. The R-squared value of 0.3212789 suggests that the model explains around 32% of the variability in the testing dataset. 
+
+```{r}
+# Visualize residuals on training data
+plot(train_residuals, pch = 16, col = "blue", main = "Training Residuals")
+abline(h = 0, col = "red", lty = 2)
+```
+
+In the plot above, the training residuals oddly increase as the index value increases. At about 21,700 along the index axis, the value of residuals increase rapidly to 400. This anomaly is explored further in the analysis.
+
+
+```{r}
+# Create new test dataset
+new_data <- train_data
+
+# Calculate residuals for the new data
+new_residuals <-  train_residuals
+
+# Add the residuals to the new data
+new_data <- cbind(new_data, Residuals = new_residuals)
+
+```
+
+
+```{r}
+# Add index as a column in new_data
+new_data$Index <- seq_along(new_data$Residuals)
+
+# Scatterplot
+ggplot(new_data, aes(x = Index, y = Residuals, color = neighbourhood_group)) +
+  geom_point() +
+  labs(title = "Scatterplot of Residuals by Index",
+       x = "Index",
+       y = "Residuals") +
+  geom_point(alpha = 0.3, size = 1) +
+  theme_minimal()
+```
+
+To explore the anomaly of the increasing residual values as the index increases, the residuals were grouped by their respective neighbourhood group. Reviewing the scatterplot, it appears that the residuals are "stacked" accordingly to their neighbourhood group with the BQSI residuals on top of the Brooklyn residuals as well as the Manhattan residuals. This pattern continues until about 21,700 along the index axis, where the residuals appear to blend with each other.
+
+```{r}
+# Scatterplot
+ggplot(new_data, aes(x = Index, y = Residuals, color = room_type)) +
+  geom_point() +
+  labs(title = "Scatterplot of Residuals by Index",
+       x = "Index",
+       y = "Residuals") +
+  geom_point(alpha = 0.3, size = 1) +
+  theme_minimal()
+```
+
+Furthermore, the scatterplot anomaly is explored with the residuals grouped by their respective room type. Similar to the neighbourhood group scatterplot, the residuals follow the same "stack" pattern. The pattern of residuals increasing as the index value increases is still present.
+
+```{r}
+# Create a new dataset with only "private room"
+private_room_data <- new_data %>% filter(room_type == "Private room")
+nrow(private_room_data)
+```
+
+```{r}
+# Scatterplot
+ggplot(private_room_data, aes(x = Index, y = Residuals, color = room_type)) +
+  geom_point() +
+  labs(title = "Scatterplot of Residuals by Index",
+       x = "Index",
+       y = "Residuals") +
+  geom_point(alpha = 0.3, size = 1) +
+  theme_minimal()
+```
+
+The previous scatterplot was reduced to one room type, private room to gain better insight of the anomaly. Analyzing the scatterplot, the residuals take the form of four clusters that increase in value as the index increases. The training data contains 12,880 rows, which can evenly divide into four groups of 3,220 rows. Creating 4 groupings of prices based on the index values and comparing the results to the residual scatterplot of private rooms will allow us to gain more insight.
+
+```{r}
+num_rows <- nrow(private_room_data)
+grouping_size <- num_rows / 4
+
+# Create a new variable 'quarter' to identify which grouping each row belongs to
+private_room_data$grouping <- cut(1:num_rows, breaks = c(0, grouping_size, 2 * grouping_size, 3 * grouping_size, num_rows), labels = FALSE)
+
+# Box plot
+ggplot(private_room_data, aes(x = as.factor(grouping), y = price, fill = as.factor(grouping))) +
+  geom_boxplot() +
+  labs(title = "Box Plot of Price for Each Grouping",
+       x = "Grouping",
+       y = "Price") +
+  theme_minimal()
+```
+
+The box plot above shows the distribution of ABNB price according to their respective group. Each group represents 3,220 rows of the dataset, with group 1 representing the first 3,220 rows of the dataset, and so forth. Reviewing the box plot, there is an identical pattern to the previous private room scatterplot, as the index increases the price range of the ABNB rental increases.
+
+In summary, the anomaly of residuals increases as the index increases is due to 2 factors:
+1. The lack of ability for the linear model to predict accurate prices given the training data
+2. At higher prices, the model's predictions becomes worse creating greater residual values
+
+
+```{r}
+# Visualize residuals on testing data
+plot(test_residuals, pch = 16, col = "green", main = "Testing Residuals")
+abline(h = 0, col = "red", lty = 2)
+
+```
+
+Residual analysis was performed to examine the distribution of errors. Residuals, the differences between actual and predicted values, were visualized for both the training and testing datasets. The plots show a scatter of residuals around zero, indicating that the model is not systematically overpredicting or underpredicting.
+
+```{r}
+# Compare predicted vs. actual values on training data
+plot(train_data$price, train_predictions, pch = 16, col = "blue", main = "Training Predictions vs. Actual")
+abline(a = 0, b = 1, col = "red", lty = 2)
+
+```
+
+```{r}
+# Compare predicted vs. actual values on testing data
+plot(test_data$price, test_predictions, pch = 16, col = "green", main = "Testing Predictions vs. Actual")
+abline(a = 0, b = 1, col = "red", lty = 2)
+```
+
+Analyzing the following scatter plots of predicted price values versus actual prices, our model fails to predict accurate price values for a majority of prices. A large portion of the plot appears to be before the red-dashed line, displaying that our model mostly overestimates the price value, while the underestimated price values spread thinner along the x-axis.
+
+### Conclusion
+
+The training and testing RMSE values are close, which suggests that the model is not significantly overfitting or underfitting the training data. The R-squared values indicate that your model explains a moderate amount of variability in both the training and testing datasets. However, it's important to note that the R-squared values are relatively low, suggesting that there is still unexplained variability in the data that the model is not capturing.
+
+In summary, your model is providing predictions that are, on average, about 83 units away from the actual prices, and it explains around 33% of the variability in both the training and testing datasets. Further refinement and exploration may be beneficial for improving model performance.
