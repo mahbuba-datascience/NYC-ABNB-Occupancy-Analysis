@@ -1,6 +1,6 @@
 ---
 title: "ABNB Data Analysis"
-author: "Matthew Grafals, Zhongming Wu, Mahbuba Siddiqua Jyoti"
+author: " Mahbuba Siddiqua Jyoti"
 date: "2023-12-02"
 output: 
   html_document: default
